@@ -131,6 +131,8 @@
     const nDays = Math.round((end - start) / 86400000) + 1;
     const lastUsed = new Map();
     const favNames = favSet();
+    // 횟수를 정한 경우에만 '연속 끼니 같은 주재료 금지' 규칙보다 우선 (최대한 자주 모드는 규칙을 지킴)
+    const favBypass = favs.perWeek > 0 ? favNames : new Set();
     const favCount = new Map(); // "주차|메뉴" → 그 주에 나온 횟수
 
     const shuffle = arr => {
@@ -154,9 +156,17 @@
         return x;
       };
 
+      // 자주 넣을 메뉴 '최대한 자주': 대부분의 자리를 가장 오래 안 나온 메뉴부터 돌아가며 채움
+      if (favs.perWeek === 0) {
+        const ok = cands
+          .filter(c => favNames.has(c.n) && (!lastUsed.has(c.n) || t - lastUsed.get(c.n) >= gap))
+          .sort((a, b) => (lastUsed.has(a.n) ? lastUsed.get(a.n) : -1) - (lastUsed.has(b.n) ? lastUsed.get(b.n) : -1));
+        if (ok.length && rand() < 0.85) return use(ok[0]);
+      }
+
       // 자주 넣을 메뉴: 이번 주 남은 횟수를 남은 끼니에 고르게 나눠 넣음 (최소 하루 반 간격)
       const daysLeft = Math.min(7 - (d % 7), nDays - d);
-      for (const x of cands.filter(c => favNames.has(c.n))) {
+      for (const x of favs.perWeek > 0 ? cands.filter(c => favNames.has(c.n)) : []) {
         const need = favs.perWeek - (favCount.get(`${wk}|${x.n}`) || 0);
         if (need <= 0) continue;
         if (lastUsed.has(x.n) && t - lastUsed.get(x.n) < 6) continue;
@@ -207,7 +217,7 @@
         }
 
         if (meal === 'B') {
-          const main = pick(MAINS, x => x.m.includes('B') && (x.p !== prevP || favNames.has(x.n)), 16, t);
+          const main = pick(MAINS, x => x.m.includes('B') && (x.p !== prevP || favBypass.has(x.n)), 16, t);
           prevP = main.p;
           dishes.push(E('main', main), E('rice', RICE.white));
           dishes.push(E('soup', pick(SOUPS, x => x.m.includes('B') && !x.heavy, 8, t)));
@@ -227,7 +237,7 @@
             dishes.push(E('one', one));
             if (kind === 'noodle') {
               dishes.push(E('rice', RICE.extra));
-              const m2 = pick(MAINS, x => x.m.includes('L') && x.f && (x.p !== one.p || favNames.has(x.n)), 20, t);
+              const m2 = pick(MAINS, x => x.m.includes('L') && x.f && (x.p !== one.p || favBypass.has(x.n)), 20, t);
               dishes.push(E('main', m2));
               dishes.push(E('side', pick(SIDES, x => x.m.includes('L') && x.t === 'veg', 12, t)));
               dayLunchP = m2.p;
@@ -238,7 +248,7 @@
               dayLunchP = one.p;
             }
           } else {
-            const main = pick(MAINS, x => x.m.includes('L') && (x.p !== prevP || favNames.has(x.n)), 20, t);
+            const main = pick(MAINS, x => x.m.includes('L') && (x.p !== prevP || favBypass.has(x.n)), 20, t);
             dayLunchP = main.p;
             dishes.push(E('main', main), E('rice', RICE.mixed));
             dishes.push(E('soup', pick(SOUPS, x => x.m.includes('L'), 8, t)));
@@ -253,7 +263,7 @@
         }
 
         if (meal === 'D') {
-          const main = pick(MAINS, x => x.m.includes('D') && ((x.p !== prevP && x.p !== dayLunchP) || favNames.has(x.n)), 20, t);
+          const main = pick(MAINS, x => x.m.includes('D') && ((x.p !== prevP && x.p !== dayLunchP) || favBypass.has(x.n)), 20, t);
           prevP = main.p;
           dishes.push(E('main', main), E('rice', RICE.white));
           dishes.push(E('soup', pick(SOUPS, x => x.m.includes('D') && !(x.heavy && x.m !== 'D'), 8, t)));
@@ -593,7 +603,8 @@
     $('#favList').innerHTML = favs.names.length
       ? favs.names.map(n => {
         const e = allMenuEntries().find(x => x.item.n === n);
-        return `<li class="chip">${e ? `<small>${esc(e.label)}</small>` : ''}${esc(n)}${e && e.item.custom ? ' ★' : ''}<button type="button" data-fav="${esc(n)}" aria-label="${esc(n)} 빼기">×</button></li>`;
+        const tag = e ? (e.item.p ? P_LABEL[e.item.p] : e.label) : '';
+        return `<li class="chip">${tag ? `<small>${esc(tag)}</small>` : ''}${esc(n)}${e && e.item.custom ? ' ★' : ''}<button type="button" data-fav="${esc(n)}" aria-label="${esc(n)} 빼기">×</button></li>`;
       }).join('')
       : '<li class="muted">아직 없어요. 위에서 메뉴를 검색해 추가하세요.</li>';
     $('#customList').innerHTML = customs.length
@@ -602,6 +613,22 @@
           <button type="button" class="btn small" data-del="${i}">삭제</button></li>`).join('')
       : '<li class="muted">직접 추가한 메뉴가 없어요.</li>';
     $('#favCount').textContent = favs.names.length ? `(${favs.names.length}개)` : '';
+    $('#favWarn').textContent = favs.perWeek > 0 && favs.names.length * favs.perWeek > 14
+      ? `고른 메뉴 ${favs.names.length}개 × 주 ${favs.perWeek}회는 일주일 주찬 자리보다 많아서 다 못 넣을 수 있어요. '최대한 자주'를 권해요.`
+      : '';
+  }
+
+  // 사람들이 좋아하는 돼지·소·닭 메뉴 30개
+  function popularFavs() {
+    return { names: Object.values(POPULAR_MEATS).flat(), perWeek: 0 };
+  }
+
+  function addPopular() {
+    for (const n of popularFavs().names) if (!favs.names.includes(n)) favs.names.push(n);
+    favs.perWeek = 0;
+    writeJson(FAV_KEY, favs);
+    $('#favMsg').textContent = "인기 고기 메뉴 30개를 넣고 '최대한 자주'로 바꿨어요. 식단표 만들기를 다시 누르면 반영돼요.";
+    renderFavs();
   }
 
   // 300명 기준 양 그대로 보여주기 (메뉴 관리 화면용)
@@ -736,18 +763,27 @@
 
   function init() {
     customs = readJson(CUSTOM_KEY, []).filter(c => c && c.n && c.i && CUSTOM_CATS[c.cat]);
-    favs = { names: [], perWeek: 2, ...readJson(FAV_KEY, {}) };
+    // 처음 쓰는 사람은 인기 고기 메뉴 30개가 기본으로 들어가 있음
+    favs = { names: [], perWeek: 2, ...readJson(FAV_KEY, popularFavs()) };
     applyCustoms();
     updateCustomFields();
     renderFavs();
 
     $('#favAdd').addEventListener('click', () => addFav($('#favInput').value));
+    $('#favPopular').addEventListener('click', addPopular);
+    $('#favClear').addEventListener('click', () => {
+      if (!favs.names.length || !confirm('자주 넣을 메뉴를 모두 뺄까요?')) return;
+      favs.names = [];
+      writeJson(FAV_KEY, favs);
+      renderFavs();
+    });
     $('#favInput').addEventListener('keydown', ev => {
       if (ev.key === 'Enter') { ev.preventDefault(); addFav($('#favInput').value); }
     });
     $('#favPerWeek').addEventListener('change', () => {
       favs.perWeek = parseInt($('#favPerWeek').value, 10);
       writeJson(FAV_KEY, favs);
+      renderFavs();
     });
     $('#favList').addEventListener('click', ev => {
       const b = ev.target.closest('button[data-fav]');

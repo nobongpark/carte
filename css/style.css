@@ -184,6 +184,9 @@ tr.est-row td { color: var(--muted); }
 .fav-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
 .fav-add input { flex: 1 1 240px; min-width: 0; }
 .per-week { display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; }
+.fav-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.msg.warn { color: var(--warn); }
+.msg:empty { display: none; }
 .msg { margin: 6px 0; min-height: 1em; color: var(--accent); font-weight: 600; font-size: 14px; }
 .chips { list-style: none; padding: 0; margin: 4px 0 10px; display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); border-radius: 999px; padding: 4px 6px 4px 12px; font-weight: 600; font-size: 14px; }

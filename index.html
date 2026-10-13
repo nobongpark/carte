@@ -75,7 +75,7 @@
     </form>
 
     <section class="card mine">
-      <details id="favBox">
+      <details id="favBox" open>
         <summary><h2>내가 원하는 메뉴 넣기 <span id="favCount" class="muted"></span></h2>
           <span class="muted">돼지갈비·소불고기처럼 더 자주 먹고 싶은 메뉴를 골라 두면 식단에 꼭 들어가요.</span></summary>
 
@@ -85,6 +85,7 @@
           <button type="button" id="favAdd" class="btn primary">추가</button>
           <label class="per-week">메뉴마다
             <select id="favPerWeek">
+              <option value="0">최대한 자주 (돌아가며)</option>
               <option value="1">주 1회</option>
               <option value="2" selected>주 2회</option>
               <option value="3">주 3회</option>
@@ -92,9 +93,16 @@
             </select>
           </label>
         </div>
+        <div class="fav-presets">
+          <button type="button" id="favPopular" class="btn small">인기 고기 메뉴 30개 넣기 (돼지·소·닭 10개씩)</button>
+          <button type="button" id="favClear" class="btn small">모두 빼기</button>
+        </div>
         <p id="favMsg" class="msg" role="status"></p>
+        <p id="favWarn" class="msg warn" role="status"></p>
         <ul id="favList" class="chips"></ul>
-        <p class="muted">고른 뒤 <b>식단표 만들기</b>를 다시 누르면 반영돼요. 주찬은 같은 날 겹치지 않게, 하루 반 이상 간격을 두고 넣어요.</p>
+        <p class="muted">고른 뒤 <b>식단표 만들기</b>를 다시 누르면 반영돼요.
+          '최대한 자주'는 고른 메뉴가 주찬 자리를 대부분 차지하도록 돌아가며 넣고, 이어지는 끼니에 같은 고기가 겹치지 않게 해요.
+          '주 N회'는 메뉴마다 그 횟수를 맞추고, 같은 메뉴는 하루 반 이상 간격을 둬요.</p>
 
         <details id="customBox" class="custom">
           <summary>목록에 없는 메뉴라면? <b>새 메뉴 만들기</b></summary>
