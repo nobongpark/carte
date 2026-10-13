@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>단체 식단표 생성기</title>
+  <meta name="description" content="인원과 기간만 넣으면 1일 3식 + 밤 9시 간식 식단표와 재료량을 자동으로 만들어 줍니다.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍱</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1>단체 식단표 생성기</h1>
+      <p class="sub">인원과 기간만 넣으면 <b>조식 · 중식 · 석식 + 밤 9시 간식</b> 식단표와 재료량을 만들어 드려요.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <form id="form" class="card form" novalidate>
+      <div class="field primary">
+        <label for="people">① 인원</label>
+        <div class="input-unit"><input id="people" type="number" min="1" max="3000" value="300" required inputmode="numeric"><span>명</span></div>
+      </div>
+      <div class="field primary">
+        <label>② 기간</label>
+        <div class="range">
+          <input id="start" type="date" required aria-label="시작일">
+          <span>~</span>
+          <input id="end" type="date" required aria-label="종료일">
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>세부 설정 (선택)</summary>
+        <div class="adv-grid">
+          <div class="field">
+            <label for="firstMeal">첫날 시작 끼니</label>
+            <select id="firstMeal">
+              <option value="B">조식부터</option>
+              <option value="L">중식부터</option>
+              <option value="D">석식부터</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="lastMeal">마지막 날 끝 끼니</label>
+            <select id="lastMeal">
+              <option value="B">조식까지</option>
+              <option value="L">중식까지</option>
+              <option value="D">석식까지</option>
+              <option value="S" selected>간식까지</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="margin">재료 여유분</label>
+            <select id="margin">
+              <option value="0">0% (정확히)</option>
+              <option value="5" selected>5% (권장)</option>
+              <option value="10">10% (29기 수준)</option>
+              <option value="15">15%</option>
+            </select>
+          </div>
+          <div class="field check">
+            <label><input id="specials" type="checkbox" checked> 특식 데이 넣기</label>
+            <small>피자·치킨·고기파티(석식), 분식·중식(중식)을 주 1회씩 자동 배치</small>
+          </div>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="submit" class="btn primary">식단표 만들기</button>
+        <span class="hint">마음에 안 들면 다시 누르면 새로 짜 드려요.</span>
+      </div>
+      <p id="error" class="error" role="alert"></p>
+    </form>
+
+    <section id="result" hidden>
+      <div class="card summary-bar">
+        <p id="summary"></p>
+      </div>
+
+      <nav class="tabs" role="tablist">
+        <button type="button" data-tab="menu" class="active">식단표</button>
+        <button type="button" data-tab="guide">조리지침서 (메뉴별 재료)</button>
+        <button type="button" data-tab="shop">장보기 목록</button>
+      </nav>
+
+      <div id="panel-menu" class="panel">
+        <div class="toolbar">
+          <p class="muted">메뉴 이름을 누르면 다른 메뉴로 바꿀 수 있어요.</p>
+          <div class="btns">
+            <button type="button" id="exportMenu" class="btn">엑셀(CSV) 저장</button>
+            <button type="button" class="btn print">인쇄</button>
+          </div>
+        </div>
+        <div id="menuView"></div>
+      </div>
+
+      <div id="panel-guide" class="panel" hidden>
+        <div class="toolbar">
+          <label>날짜 <select id="guideDay"></select></label>
+          <div class="btns">
+            <button type="button" id="exportGuide" class="btn">엑셀(CSV) 저장</button>
+            <button type="button" class="btn print">인쇄</button>
+          </div>
+        </div>
+        <p class="muted legend"><span class="ing"><b>진한 글씨</b></span> 29기 조리지침서 기준 양 · <span class="ing est"><b>흐린 글씨</b></span> 단체급식 표준량으로 추정한 양</p>
+        <div id="guideView"></div>
+      </div>
+
+      <div id="panel-shop" class="panel" hidden>
+        <div class="toolbar">
+          <label>범위 <select id="shopRange"></select></label>
+          <div class="btns">
+            <button type="button" id="exportShop" class="btn">엑셀(CSV) 저장</button>
+            <button type="button" class="btn print">인쇄</button>
+          </div>
+        </div>
+        <div id="shopView"></div>
+      </div>
+    </section>
+
+    <section class="card notes">
+      <h2>참고해 주세요</h2>
+      <ul>
+        <li>메뉴 구성과 재료량은 <b>72시간 공부캠프 29기 조리지침서(300명 기준)</b>를 바탕으로, 입력한 인원에 비례해 계산합니다.</li>
+        <li>원본에 양이 적혀 있지 않던 부재료(양파·대파·양념 등)와 밥·김치는 단체급식 표준량으로 <b>추정</b>한 값이라 흐리게 표시됩니다.</li>
+        <li>원본에서 단위 없이 숫자만 있던 채소·육류는 kg으로 해석했습니다. 봉·팩·박스는 29기에 쓰던 포장 단위입니다.</li>
+        <li>구성 원칙: 조식(백미밥) · 중식(잡곡밥, 3일에 1번 일품요리) · 석식(백미밥 + 샐러드 + 과일) · 간식(밤 9시, 간식 + 음료).
+          같은 메뉴가 며칠 안에 반복되지 않게 하고, 연속된 끼니의 주재료(돼지·소·닭·생선 등)가 겹치지 않게 배치합니다.</li>
+        <li>영양사가 검토한 식단은 아닙니다. 알레르기·종교 등 제한 식단이 있으면 해당 메뉴를 눌러 바꿔 주세요.</li>
+      </ul>
+    </section>
+  </main>
+
+  <dialog id="swapDialog">
+    <h3 id="swapTitle">메뉴 바꾸기</h3>
+    <select id="swapSelect" size="8"></select>
+    <div id="swapPreview" class="preview"></div>
+    <div class="dialog-actions">
+      <button type="button" id="swapRandom" class="btn">아무거나 추천</button>
+      <button type="button" id="swapCancel" class="btn">취소</button>
+      <button type="button" id="swapApply" class="btn primary">이 메뉴로 바꾸기</button>
+    </div>
+  </dialog>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
