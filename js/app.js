@@ -287,23 +287,61 @@
     return days;
   }
 
-  /* ───────── 상태 ───────── */
-  let state = null; // { opts, days }
+  /* ───────── 상태 ─────────
+   * state = {
+   *   opts:     생성 조건 (기간·끼니·여유분·특식·캠퍼스 목록)
+   *   base:     처음 만든 기준 식단 (모든 캠퍼스가 이 식단에서 출발)
+   *   campuses: [{ id, name, people, days }]  캠퍼스마다 따로 고칠 수 있는 식단
+   *   active:   지금 보고 있는 캠퍼스 id
+   * }
+   */
+  let state = null;
 
+  function cur() {
+    return state.campuses.find(c => c.id === state.active) || state.campuses[0];
+  }
+
+  function factorFor(people) {
+    return (people / BASE_PEOPLE) * (1 + state.opts.margin / 100);
+  }
   function factor() {
-    return (state.opts.people / BASE_PEOPLE) * (1 + state.opts.margin / 100);
+    return factorFor(cur().people);
+  }
+
+  function cloneDays(days) {
+    return days.map(day => ({
+      date: day.date,
+      meals: Object.fromEntries(Object.entries(day.meals).map(([k, v]) => [k, { title: v.title, dishes: v.dishes.map(e => ({ ...e })) }])),
+    }));
+  }
+
+  const mealKey = m => (m ? `${m.title}|${m.dishes.map(e => e.item.n).join(',')}` : '');
+
+  function slimDays(days) {
+    return days.map(day => ({
+      date: day.date,
+      meals: Object.fromEntries(Object.entries(day.meals).map(([k, v]) => [k, { title: v.title, dishes: v.dishes.map(e => [e.cat, e.item.n]) }])),
+    }));
+  }
+  function fatDays(days) {
+    return days.map(day => ({
+      date: day.date,
+      meals: Object.fromEntries(Object.entries(day.meals).map(([k, v]) => [k, {
+        title: v.title,
+        dishes: v.dishes.map(([cat, n]) => ({ cat, item: findItem(cat, n) })).filter(e => e.item),
+      }])),
+    }));
   }
 
   function save() {
     try {
-      const slim = {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        v: 2,
         opts: state.opts,
-        days: state.days.map(day => ({
-          date: day.date,
-          meals: Object.fromEntries(Object.entries(day.meals).map(([k, v]) => [k, { title: v.title, dishes: v.dishes.map(e => [e.cat, e.item.n]) }])),
-        })),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+        active: state.active,
+        base: slimDays(state.base),
+        campuses: state.campuses.map(c => ({ id: c.id, name: c.name, people: c.people, days: slimDays(c.days) })),
+      }));
     } catch (e) { /* 저장 불가 환경은 무시 */ }
   }
 
@@ -311,15 +349,20 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
-      const slim = JSON.parse(raw);
-      const days = slim.days.map(day => ({
-        date: day.date,
-        meals: Object.fromEntries(Object.entries(day.meals).map(([k, v]) => [k, {
-          title: v.title,
-          dishes: v.dishes.map(([cat, n]) => ({ cat, item: findItem(cat, n) })).filter(e => e.item),
-        }])),
-      }));
-      return { opts: slim.opts, days };
+      const s = JSON.parse(raw);
+      if (s.v === 2) {
+        return {
+          opts: s.opts,
+          active: s.active,
+          base: fatDays(s.base),
+          campuses: s.campuses.map(c => ({ id: c.id, name: c.name, people: c.people, days: fatDays(c.days) })),
+        };
+      }
+      // 예전(캠퍼스 하나) 저장 형식
+      const days = fatDays(s.days);
+      const id = 'c1';
+      const opts = { ...s.opts, campuses: [{ id, name: 'A캠퍼스', people: s.opts.people }] };
+      return { opts, active: id, base: cloneDays(days), campuses: [{ id, name: 'A캠퍼스', people: s.opts.people, days }] };
     } catch (e) {
       return null;
     }
@@ -329,9 +372,37 @@
   const $ = sel => document.querySelector(sel);
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  /* 입력 폼의 캠퍼스 목록 */
+  let campusRows = [{ id: 'c1', name: 'A캠퍼스', people: 300 }];
+  let campusSeq = 1;
+
+  function renderCampusRows() {
+    $('#campusRows').innerHTML = campusRows.map((c, i) => `
+      <div class="campus-row" data-id="${esc(c.id)}">
+        <input class="c-name" value="${esc(c.name)}" aria-label="캠퍼스 이름" placeholder="캠퍼스 이름">
+        <div class="input-unit"><input class="c-people" type="number" min="1" max="3000" value="${c.people}" inputmode="numeric" aria-label="${esc(c.name)} 인원"><span>명</span></div>
+        <button type="button" class="btn small c-del" ${campusRows.length === 1 ? 'disabled' : ''} aria-label="${esc(c.name)} 삭제">삭제</button>
+      </div>`).join('');
+  }
+
+  function nextCampusName() {
+    const used = new Set(campusRows.map(c => c.name));
+    for (const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') if (!used.has(`${ch}캠퍼스`)) return `${ch}캠퍼스`;
+    return `캠퍼스${campusRows.length + 1}`;
+  }
+
+  function readCampusRows() {
+    campusRows = [...document.querySelectorAll('.campus-row')].map(row => ({
+      id: row.dataset.id,
+      name: row.querySelector('.c-name').value.trim(),
+      people: parseInt(row.querySelector('.c-people').value, 10),
+    }));
+    return campusRows;
+  }
+
   function readForm() {
     return {
-      people: parseInt($('#people').value, 10),
+      campuses: readCampusRows().map(c => ({ ...c })),
       start: $('#start').value,
       end: $('#end').value,
       firstMeal: $('#firstMeal').value,
@@ -343,7 +414,9 @@
   }
 
   function writeForm(o) {
-    $('#people').value = o.people;
+    campusRows = o.campuses.map(c => ({ ...c }));
+    campusSeq = Math.max(1, ...campusRows.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10) || 0));
+    renderCampusRows();
     $('#start').value = o.start;
     $('#end').value = o.end;
     $('#firstMeal').value = o.firstMeal;
@@ -352,8 +425,21 @@
     $('#specials').checked = o.specials;
   }
 
+  function validateCampuses(list) {
+    if (!list.length) return '캠퍼스를 하나 이상 넣어 주세요.';
+    const names = new Set();
+    for (const c of list) {
+      if (!c.name) return '캠퍼스 이름을 입력해 주세요.';
+      if (names.has(c.name)) return `캠퍼스 이름 '${c.name}'이(가) 겹칩니다.`;
+      names.add(c.name);
+      if (!Number.isFinite(c.people) || c.people < 1 || c.people > 3000) return `${c.name} 인원은 1명 ~ 3,000명 사이로 입력해 주세요.`;
+    }
+    return '';
+  }
+
   function validate(o) {
-    if (!Number.isFinite(o.people) || o.people < 1 || o.people > 3000) return '인원은 1명 ~ 3,000명 사이로 입력해 주세요.';
+    const ce = validateCampuses(o.campuses);
+    if (ce) return ce;
     if (!o.start || !o.end) return '시작일과 종료일을 모두 입력해 주세요.';
     const n = Math.round((parseDate(o.end) - parseDate(o.start)) / 86400000) + 1;
     if (n < 1) return '종료일이 시작일보다 빠릅니다.';
@@ -362,26 +448,58 @@
     return '';
   }
 
+  // 식단을 만든 뒤 캠퍼스 이름·인원을 바꾸거나 추가·삭제하면 바로 반영 (새 캠퍼스는 기준 식단에서 시작)
+  function syncCampuses() {
+    if (!state) return;
+    const list = readCampusRows();
+    if (validateCampuses(list)) return;
+    state.campuses = list.map(r => {
+      const old = state.campuses.find(c => c.id === r.id);
+      return { id: r.id, name: r.name, people: r.people, days: old ? old.days : cloneDays(state.base) };
+    });
+    state.opts.campuses = list.map(c => ({ ...c }));
+    if (!state.campuses.some(c => c.id === state.active)) state.active = state.campuses[0].id;
+    save();
+    render();
+  }
+
+  function changedMeals(c) {
+    let n = 0;
+    c.days.forEach((day, i) => MEALS.forEach(m => { if (mealKey(day.meals[m]) !== mealKey(state.base[i].meals[m])) n++; }));
+    return n;
+  }
+
   function render() {
     if (!state) return;
     $('#result').hidden = false;
     const o = state.opts;
-    const nDays = state.days.length;
+    const c = cur();
+    const nDays = c.days.length;
+    $('#campusTabs').innerHTML = state.campuses.map(x => {
+      const ch = changedMeals(x);
+      return `<button type="button" role="tab" data-campus="${esc(x.id)}" class="${x.id === c.id ? 'active' : ''}" aria-selected="${x.id === c.id}">
+        ${esc(x.name)} <small>${x.people.toLocaleString('ko-KR')}명${ch ? ` · ${ch}끼 수정` : ''}</small></button>`;
+    }).join('');
+    $('#campusTabs').hidden = state.campuses.length < 2;
     $('#summary').innerHTML =
-      `<b>${o.people.toLocaleString('ko-KR')}명</b> · ${esc(md(parseDate(o.start)))} ~ ${esc(md(parseDate(o.end)))} (${nDays}일) · ` +
-      `재료 여유분 <b>${o.margin}%</b> · 계산 기준 <b>${Math.ceil(o.people * (1 + o.margin / 100)).toLocaleString('ko-KR')}인분</b>`;
+      `<b>${esc(c.name)}</b> · <b>${c.people.toLocaleString('ko-KR')}명</b> · ${esc(md(parseDate(o.start)))} ~ ${esc(md(parseDate(o.end)))} (${nDays}일) · ` +
+      `재료 여유분 <b>${o.margin}%</b> · 계산 기준 <b>${Math.ceil(c.people * (1 + o.margin / 100)).toLocaleString('ko-KR')}인분</b>`;
+    $('#copyFrom').innerHTML = '<option value="">— 다른 식단 그대로 가져오기 —</option><option value="__base">처음 만든 기준 식단으로 되돌리기</option>' +
+      state.campuses.filter(x => x.id !== c.id).map(x => `<option value="${esc(x.id)}">${esc(x.name)} 식단과 똑같이</option>`).join('');
+    $('#exportAllWrap').hidden = state.campuses.length < 2;
     renderMenu();
     renderGuide();
     renderShopping();
   }
 
-  function weeks() {
+  function weeks(days = cur().days) {
     const out = [];
-    for (let i = 0; i < state.days.length; i += 7) out.push(state.days.slice(i, i + 7));
+    for (let i = 0; i < days.length; i += 7) out.push(days.slice(i, i + 7));
     return out;
   }
 
   function renderMenu() {
+    const multi = state.campuses.length > 1;
     const html = weeks().map((wk, wi) => {
       const head = wk.map(day => {
         const dt = parseDate(day.date);
@@ -394,20 +512,23 @@
           if (!m) return '<td class="empty">—</td>';
           const dIdx = wi * 7 + di;
           const items = m.dishes.map((e, k) => {
-            const swappable = !['rice', 'kimchi', 'special'].includes(e.cat);
+            const swappable = !['rice', 'kimchi'].includes(e.cat);
             const cls = `dish cat-${e.cat}`;
             return swappable
               ? `<li><button type="button" class="${cls}" data-d="${dIdx}" data-m="${meal}" data-k="${k}" title="눌러서 다른 메뉴로 바꾸기">${esc(e.item.n)}</button></li>`
               : `<li><span class="${cls}">${esc(e.item.n)}</span></li>`;
           }).join('');
           const badge = m.title ? `<div class="badge">${esc(m.title)}</div>` : '';
-          return `<td>${badge}<ul>${items}</ul></td>`;
+          const changed = multi && mealKey(m) !== mealKey(state.base[dIdx].meals[meal]);
+          const move = meal === 'S' ? '' : `<button type="button" class="move" data-d="${dIdx}" data-m="${meal}" title="이 끼니를 다른 날·끼니와 통째로 맞바꾸기">⇄ 끼니 옮기기</button>`;
+          return `<td class="${changed ? 'changed' : ''}">${badge}<ul>${items}</ul>${move}</td>`;
         }).join('');
         return `<tr><th class="meal meal-${meal}">${MEAL_LABEL[meal]}</th>${cells}</tr>`;
       }).join('');
       return `<div class="week"><h3>${wi + 1}주차</h3><div class="table-wrap"><table class="menu"><thead><tr><th class="corner">구분</th>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
     $('#menuView').innerHTML = html;
+    $('#changedLegend').hidden = !multi;
   }
 
   function ingHtml(item) {
@@ -419,54 +540,68 @@
   }
 
   function renderGuide() {
+    const days = cur().days;
     const sel = $('#guideDay');
     const prev = sel.value;
     sel.innerHTML = `<option value="all">전체 날짜</option>` +
-      state.days.map((day, i) => `<option value="${i}">${esc(md(parseDate(day.date)))}</option>`).join('');
+      days.map((day, i) => `<option value="${i}">${esc(md(parseDate(day.date)))}</option>`).join('');
     if ([...sel.options].some(op => op.value === prev)) sel.value = prev;
-    const which = sel.value === 'all' ? state.days.map((_, i) => i) : [parseInt(sel.value, 10)];
-    const cnt = Math.ceil(state.opts.people * (1 + state.opts.margin / 100));
+    const which = sel.value === 'all' ? days.map((_, i) => i) : [parseInt(sel.value, 10)];
+    const cnt = Math.ceil(cur().people * (1 + state.opts.margin / 100));
     $('#guideView').innerHTML = which.map(i => {
-      const day = state.days[i];
+      const day = days[i];
       const meals = MEALS.filter(m => day.meals[m]).map(m => {
         const meal = day.meals[m];
         const rows = meal.dishes.map(e =>
           `<tr><td class="g-name"><span class="tag">${CAT_LABEL[e.cat]}</span>${esc(e.item.n)}</td><td class="g-ing">${ingHtml(e.item)}</td></tr>`
         ).join('');
-        return `<div class="g-meal"><h4>${MEAL_LABEL[m]} ${meal.title ? `<span class="badge">${esc(meal.title)}</span>` : ''} <small>(${cnt.toLocaleString('ko-KR')}인분)</small></h4>
+        return `<div class="g-meal"><h4>${MEAL_LABEL[m]} ${meal.title ? `<span class="badge">${esc(meal.title)}</span>` : ''} <small>(${esc(cur().name)} ${cnt.toLocaleString('ko-KR')}인분)</small></h4>
           <table class="guide"><tbody>${rows}</tbody></table></div>`;
       }).join('');
       return `<section class="g-day"><h3>${esc(md(parseDate(day.date)))}</h3>${meals}</section>`;
     }).join('');
   }
 
-  function aggregate(dayIdxs) {
-    const f = factor();
+  // 캠퍼스 목록 × 날짜 범위의 재료 합계
+  function aggregate(campuses, dayIdxs) {
     const map = new Map();
-    for (const i of dayIdxs) {
-      for (const meal of Object.values(state.days[i].meals)) {
-        for (const e of meal.dishes) {
-          for (const g of parseIngredients(e.item.i)) {
-            if (g.qty == null) continue;
-            const key = `${g.name}|${g.unit}`;
-            const cur = map.get(key) || { name: g.name, unit: g.unit, qty: 0, est: false, uses: 0 };
-            cur.qty += g.qty * f;
-            cur.est = cur.est || g.est;
-            cur.uses++;
-            map.set(key, cur);
+    for (const c of campuses) {
+      const f = factorFor(c.people);
+      for (const i of dayIdxs) {
+        for (const meal of Object.values(c.days[i].meals)) {
+          for (const e of meal.dishes) {
+            for (const g of parseIngredients(e.item.i)) {
+              if (g.qty == null) continue;
+              const key = `${g.name}|${g.unit}`;
+              const row = map.get(key) || { name: g.name, unit: g.unit, qty: 0, est: false, uses: 0, by: {} };
+              const q = g.qty * f;
+              row.qty += q;
+              row.by[c.id] = (row.by[c.id] || 0) + q;
+              row.est = row.est || g.est;
+              row.uses++;
+              map.set(key, row);
+            }
           }
         }
       }
     }
-    return [...map.values()].map(x => ({ ...x, qty: scaleQty(x.qty, x.unit, 1) }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    return [...map.values()].map(x => ({
+      ...x,
+      qty: scaleQty(x.qty, x.unit, 1),
+      by: Object.fromEntries(Object.entries(x.by).map(([k, v]) => [k, scaleQty(v, x.unit, 1)])),
+    })).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }
 
   function shoppingRange() {
+    const days = cur().days;
     const v = $('#shopRange').value;
-    if (v === 'all') return state.days.map((_, i) => i);
+    if (v === 'all') return days.map((_, i) => i);
     const w = parseInt(v, 10);
-    return state.days.map((_, i) => i).filter(i => Math.floor(i / 7) === w);
+    return days.map((_, i) => i).filter(i => Math.floor(i / 7) === w);
+  }
+
+  function shoppingCampuses() {
+    return $('#shopCampus').value === 'all' ? state.campuses : [cur()];
   }
 
   function renderShopping() {
@@ -476,55 +611,145 @@
     sel.innerHTML = `<option value="all">전체 기간</option>` + wks.map((wk, i) =>
       `<option value="${i}">${i + 1}주차 (${esc(md(parseDate(wk[0].date)))} ~ ${esc(md(parseDate(wk[wk.length - 1].date)))})</option>`).join('');
     if ([...sel.options].some(op => op.value === prev)) sel.value = prev;
-    const rows = aggregate(shoppingRange());
-    $('#shopView').innerHTML = `<div class="table-wrap"><table class="shop"><thead><tr><th>재료</th><th class="num">수량</th><th>단위</th><th>사용 횟수</th><th>비고</th></tr></thead><tbody>` +
-      rows.map(r => `<tr class="${r.est ? 'est-row' : ''}"><td>${esc(r.name)}</td><td class="num">${fmtQty(r.qty)}</td><td>${esc(r.unit)}</td><td class="num">${r.uses}</td><td>${r.est ? '추정 포함' : ''}</td></tr>`).join('') +
+
+    const csel = $('#shopCampus');
+    const cprev = csel.value || 'cur';
+    csel.innerHTML = `<option value="cur">${esc(cur().name)}만</option>` + (state.campuses.length > 1 ? '<option value="all">모든 캠퍼스 합계</option>' : '');
+    csel.value = [...csel.options].some(op => op.value === cprev) ? cprev : 'cur';
+    $('#shopCampusWrap').hidden = state.campuses.length < 2;
+
+    const camps = shoppingCampuses();
+    const split = camps.length > 1;
+    const rows = aggregate(camps, shoppingRange());
+    const extraHead = split ? camps.map(c => `<th class="num">${esc(c.name)}</th>`).join('') : '';
+    $('#shopView').innerHTML = `<div class="table-wrap"><table class="shop"><thead><tr><th>재료</th><th class="num">${split ? '합계' : '수량'}</th><th>단위</th>${extraHead}<th>사용 횟수</th><th>비고</th></tr></thead><tbody>` +
+      rows.map(r => `<tr class="${r.est ? 'est-row' : ''}"><td>${esc(r.name)}</td><td class="num"><b>${fmtQty(r.qty)}</b></td><td>${esc(r.unit)}</td>` +
+        (split ? camps.map(c => `<td class="num">${r.by[c.id] ? fmtQty(r.by[c.id]) : '—'}</td>`).join('') : '') +
+        `<td class="num">${r.uses}</td><td>${r.est ? '추정 포함' : ''}</td></tr>`).join('') +
       `</tbody></table></div><p class="muted">총 ${rows.length}개 품목</p>`;
   }
 
   /* ───────── 메뉴 바꾸기 ───────── */
+  const SWAP_ALL_CATS = ['main', 'one', 'soup', 'side', 'bset', 'lsalad', 'dsalad', 'fruit', 'dessert', 'snack', 'drink'];
   let swapTarget = null;
+
+  // 후보 목록: 기본은 같은 분류·같은 끼니, '모든 메뉴 보기'를 켜면 분류·끼니 상관없이 전부
+  function swapCandidates() {
+    const { d, meal, k } = swapTarget;
+    const entry = cur().days[d].meals[meal].dishes[k];
+    if ($('#swapAll').checked || entry.cat === 'special') {
+      const seen = new Set();
+      return SWAP_ALL_CATS.flatMap(cat => POOLS[cat].map(item => ({ cat, item })))
+        .filter(x => (seen.has(x.item.n) ? false : seen.add(x.item.n)));
+    }
+    return alternatives(entry, meal).map(item => ({ cat: entry.cat, item }));
+  }
+
   function openSwap(d, meal, k) {
-    const entry = state.days[d].meals[meal].dishes[k];
-    const alts = alternatives(entry, meal);
+    const entry = cur().days[d].meals[meal].dishes[k];
     swapTarget = { d, meal, k };
-    $('#swapTitle').textContent = `${md(parseDate(state.days[d].date))} ${MEAL_LABEL[meal]} · ${CAT_LABEL[entry.cat]} 바꾸기`;
+    $('#swapTitle').textContent = `${cur().name} · ${md(parseDate(cur().days[d].date))} ${MEAL_LABEL[meal]} · ${entry.item.n} 바꾸기`;
     $('#swapSearch').value = '';
+    $('#swapAll').checked = entry.cat === 'special';
+    $('#swapRemove').hidden = false;
     fillSwapOptions();
     $('#swapPreview').innerHTML = ingHtml(entry.item);
     $('#swapDialog').showModal();
   }
   function fillSwapOptions() {
     const { d, meal, k } = swapTarget;
-    const entry = state.days[d].meals[meal].dishes[k];
+    const entry = cur().days[d].meals[meal].dishes[k];
     const q = $('#swapSearch').value.trim();
     const names = favSet();
+    const all = $('#swapAll').checked || entry.cat === 'special';
     // 자주 넣을 메뉴·직접 만든 메뉴를 위로
-    const alts = alternatives(entry, meal)
-      .filter(x => !q || x.n.includes(q))
-      .sort((a, b) => (names.has(b.n) - names.has(a.n)) || ((b.custom || 0) - (a.custom || 0)));
-    $('#swapSelect').innerHTML = alts.map(x =>
-      `<option value="${esc(x.n)}"${x.n === entry.item.n ? ' selected' : ''}>${names.has(x.n) ? '♥ ' : ''}${esc(x.n)}${x.custom ? ' ★' : ''}</option>`).join('');
+    const list = swapCandidates()
+      .filter(x => !q || x.item.n.includes(q))
+      .sort((a, b) => (names.has(b.item.n) - names.has(a.item.n)) || ((b.item.custom || 0) - (a.item.custom || 0)));
+    $('#swapSelect').innerHTML = list.map(x =>
+      `<option value="${esc(x.cat)}|${esc(x.item.n)}"${x.item.n === entry.item.n ? ' selected' : ''}>${all ? `[${CAT_LABEL[x.cat]}] ` : ''}${names.has(x.item.n) ? '♥ ' : ''}${esc(x.item.n)}${x.item.custom ? ' ★' : ''}</option>`).join('');
+  }
+  function selectedSwap() {
+    const v = $('#swapSelect').value;
+    if (!v) return null;
+    const i = v.indexOf('|');
+    return swapCandidates().find(x => x.cat === v.slice(0, i) && x.item.n === v.slice(i + 1)) || null;
   }
   function swapPreview() {
-    const { d, meal, k } = swapTarget;
-    const entry = state.days[d].meals[meal].dishes[k];
-    const item = alternatives(entry, meal).find(x => x.n === $('#swapSelect').value);
-    if (item) $('#swapPreview').innerHTML = ingHtml(item);
+    const x = selectedSwap();
+    if (x) $('#swapPreview').innerHTML = ingHtml(x.item);
   }
   function applySwap(random) {
     const { d, meal, k } = swapTarget;
-    const entry = state.days[d].meals[meal].dishes[k];
-    const alts = alternatives(entry, meal);
-    let item;
+    const dishes = cur().days[d].meals[meal].dishes;
+    const entry = dishes[k];
+    let next;
     if (random) {
-      const others = alts.filter(x => x.n !== entry.item.n);
-      item = others[Math.floor(Math.random() * others.length)] || entry.item;
+      const others = swapCandidates().filter(x => x.item.n !== entry.item.n);
+      next = others[Math.floor(Math.random() * others.length)];
     } else {
-      item = alts.find(x => x.n === $('#swapSelect').value) || entry.item;
+      next = selectedSwap();
     }
-    state.days[d].meals[meal].dishes[k] = { cat: entry.cat, item };
+    if (next) dishes[k] = { cat: next.cat, item: next.item };
     $('#swapDialog').close();
+    save();
+    render();
+  }
+  function removeDish() {
+    const { d, meal, k } = swapTarget;
+    const dishes = cur().days[d].meals[meal].dishes;
+    if (dishes.length <= 1) return;
+    dishes.splice(k, 1);
+    $('#swapDialog').close();
+    save();
+    render();
+  }
+
+  /* ───────── 끼니 통째로 옮기기 (맞바꾸기) ───────── */
+  let moveSource = null;
+  function mealSummary(m) {
+    if (!m) return '';
+    const main = m.dishes.find(e => ['main', 'one', 'special', 'snack'].includes(e.cat)) || m.dishes[0];
+    return m.title ? `${m.title}: ${main.item.n}` : main ? main.item.n : '';
+  }
+  function openMove(d, meal) {
+    const days = cur().days;
+    moveSource = { d, meal };
+    const src = days[d].meals[meal];
+    $('#moveTitle').textContent = `${cur().name} · ${md(parseDate(days[d].date))} ${MEAL_LABEL[meal]} (${mealSummary(src)}) 옮기기`;
+    const opts = [];
+    days.forEach((day, i) => ['B', 'L', 'D'].forEach(m => {
+      if (!day.meals[m] || (i === d && m === meal)) return;
+      opts.push(`<option value="${i}|${m}">${esc(md(parseDate(day.date)))} ${MEAL_LABEL[m]} — ${esc(mealSummary(day.meals[m]))}</option>`);
+    }));
+    $('#moveSelect').innerHTML = opts.join('');
+    // 기본 선택: 같은 날 점심 ↔ 저녁
+    const pref = meal === 'L' ? `${d}|D` : meal === 'D' ? `${d}|L` : `${d}|L`;
+    if ([...$('#moveSelect').options].some(o => o.value === pref)) $('#moveSelect').value = pref;
+    $('#moveDialog').showModal();
+  }
+  function applyMove() {
+    const v = $('#moveSelect').value;
+    if (!v || !moveSource) return;
+    const [d2, m2] = v.split('|');
+    const days = cur().days;
+    const a = days[moveSource.d].meals;
+    const b = days[+d2].meals;
+    [a[moveSource.meal], b[m2]] = [b[m2], a[moveSource.meal]];
+    $('#moveDialog').close();
+    save();
+    render();
+  }
+
+  function copyCampusFrom() {
+    const v = $('#copyFrom').value;
+    $('#copyFrom').value = '';
+    if (!v) return;
+    const src = v === '__base' ? state.base : (state.campuses.find(c => c.id === v) || {}).days;
+    if (!src) return;
+    const label = v === '__base' ? '처음 만든 기준 식단' : state.campuses.find(c => c.id === v).name;
+    if (!confirm(`${cur().name} 식단을 ${label}과(와) 똑같이 바꿀까요? 이 캠퍼스에서 고친 내용은 사라져요.`)) return;
+    cur().days = cloneDays(src);
     save();
     render();
   }
@@ -542,9 +767,9 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  function exportMenu() {
-    const rows = [];
-    for (const wk of weeks()) {
+  function menuRows(c) {
+    const rows = [[`${c.name} (${c.people}명)`]];
+    for (const wk of weeks(c.days)) {
       rows.push(['구분', ...wk.map(d => md(parseDate(d.date)))]);
       for (const meal of MEALS) {
         const maxLen = Math.max(...wk.map(d => (d.meals[meal] ? d.meals[meal].dishes.length + (d.meals[meal].title ? 1 : 0) : 0)));
@@ -559,30 +784,40 @@
       }
       rows.push([]);
     }
-    downloadCsv(`식단표_${state.opts.start}_${state.opts.end}.csv`, rows);
+    return rows;
+  }
+
+  function exportMenu() {
+    const all = $('#exportAllCampus') && $('#exportAllCampus').checked && state.campuses.length > 1;
+    const camps = all ? state.campuses : [cur()];
+    const rows = camps.flatMap(c => menuRows(c).concat([[]]));
+    downloadCsv(`식단표_${all ? '전체캠퍼스' : cur().name}_${state.opts.start}_${state.opts.end}.csv`, rows);
   }
 
   function exportGuide() {
+    const c = cur();
     const f = factor();
-    const rows = [['날짜', '끼니', '분류', '메뉴', '재료', '수량', '단위', '추정']];
-    state.days.forEach(day => {
+    const rows = [['캠퍼스', '날짜', '끼니', '분류', '메뉴', '재료', '수량', '단위', '추정']];
+    c.days.forEach(day => {
       MEALS.filter(m => day.meals[m]).forEach(m => {
         day.meals[m].dishes.forEach(e => {
           parseIngredients(e.item.i).forEach(g => {
-            rows.push([md(parseDate(day.date)), MEAL_LABEL[m], CAT_LABEL[e.cat], e.item.n, g.name,
+            rows.push([c.name, md(parseDate(day.date)), MEAL_LABEL[m], CAT_LABEL[e.cat], e.item.n, g.name,
               g.qty == null ? '' : scaleQty(g.qty, g.unit, f), g.unit, g.est ? '추정' : '']);
           });
         });
       });
     });
-    downloadCsv(`조리지침서_${state.opts.start}_${state.opts.end}.csv`, rows);
+    downloadCsv(`조리지침서_${c.name}_${state.opts.start}_${state.opts.end}.csv`, rows);
   }
 
   function exportShopping() {
-    const rows = [['재료', '수량', '단위', '사용 횟수', '비고']];
-    aggregate(shoppingRange()).forEach(r => rows.push([r.name, r.qty, r.unit, r.uses, r.est ? '추정 포함' : '']));
+    const camps = shoppingCampuses();
+    const split = camps.length > 1;
+    const rows = [['재료', split ? '합계' : '수량', '단위', ...(split ? camps.map(c => c.name) : []), '사용 횟수', '비고']];
+    aggregate(camps, shoppingRange()).forEach(r => rows.push([r.name, r.qty, r.unit, ...(split ? camps.map(c => r.by[c.id] || '') : []), r.uses, r.est ? '추정 포함' : '']));
     const label = $('#shopRange').value === 'all' ? '전체' : `${parseInt($('#shopRange').value, 10) + 1}주차`;
-    downloadCsv(`장보기목록_${label}_${state.opts.start}.csv`, rows);
+    downloadCsv(`장보기목록_${split ? '전체캠퍼스' : cur().name}_${label}_${state.opts.start}.csv`, rows);
   }
 
   /* ───────── 내 메뉴 관리 화면 ───────── */
@@ -808,14 +1043,36 @@
 
     const today = new Date();
     const restored = load();
-    if (restored && restored.days.length) {
+    if (restored && restored.campuses.length && restored.campuses[0].days.length) {
       state = restored;
       writeForm(state.opts);
       render();
     } else {
+      renderCampusRows();
       $('#start').value = ymd(today);
       $('#end').value = ymd(addDays(today, 6));
     }
+
+    // 캠퍼스 추가·삭제·수정
+    $('#campusAdd').addEventListener('click', () => {
+      readCampusRows();
+      const last = campusRows[campusRows.length - 1];
+      campusRows.push({ id: `c${++campusSeq}`, name: nextCampusName(), people: last ? last.people : 300 });
+      renderCampusRows();
+      syncCampuses();
+    });
+    $('#campusRows').addEventListener('click', ev => {
+      const b = ev.target.closest('.c-del');
+      if (!b) return;
+      const row = b.closest('.campus-row');
+      const name = row.querySelector('.c-name').value;
+      if (state && !confirm(`${name}을(를) 삭제할까요? 이 캠퍼스에서 고친 식단도 사라져요.`)) return;
+      readCampusRows();
+      campusRows = campusRows.filter(c => c.id !== row.dataset.id);
+      renderCampusRows();
+      syncCampuses();
+    });
+    $('#campusRows').addEventListener('change', syncCampuses);
 
     $('#form').addEventListener('submit', ev => {
       ev.preventDefault();
@@ -823,36 +1080,55 @@
       const err = validate(opts);
       $('#error').textContent = err;
       if (err) return;
-      state = { opts, days: generate(opts) };
+      if (state && state.campuses.some(c => changedMeals(c) > 0) &&
+        !confirm('식단을 새로 만들면 캠퍼스별로 고친 내용이 모두 사라져요. 새로 만들까요?')) return;
+      const base = generate(opts);
+      state = {
+        opts,
+        base,
+        campuses: opts.campuses.map(c => ({ ...c, days: cloneDays(base) })),
+        active: state && opts.campuses.some(c => c.id === state.active) ? state.active : opts.campuses[0].id,
+      };
       save();
       render();
       setTab('menu');
       $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
-    // 인원·여유분만 바뀌면 메뉴는 그대로 두고 양만 다시 계산
-    ['#people', '#margin'].forEach(sel => $(sel).addEventListener('change', () => {
+    // 여유분만 바뀌면 메뉴는 그대로 두고 양만 다시 계산
+    $('#margin').addEventListener('change', () => {
       if (!state) return;
-      const p = parseInt($('#people').value, 10);
-      const mg = parseFloat($('#margin').value);
-      if (!Number.isFinite(p) || p < 1 || p > 3000) return;
-      state.opts.people = p;
-      state.opts.margin = mg;
+      state.opts.margin = parseFloat($('#margin').value);
       save();
       render();
-    }));
+    });
 
-    document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+    $('#campusTabs').addEventListener('click', ev => {
+      const b = ev.target.closest('button[data-campus]');
+      if (!b) return;
+      state.active = b.dataset.campus;
+      save();
+      render();
+    });
+    document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
     $('#menuView').addEventListener('click', ev => {
+      const mv = ev.target.closest('button.move');
+      if (mv) { openMove(+mv.dataset.d, mv.dataset.m); return; }
       const btn = ev.target.closest('button.dish');
       if (btn) openSwap(+btn.dataset.d, btn.dataset.m, +btn.dataset.k);
     });
     $('#swapSelect').addEventListener('change', swapPreview);
+    $('#swapAll').addEventListener('change', fillSwapOptions);
     $('#swapApply').addEventListener('click', () => applySwap(false));
     $('#swapRandom').addEventListener('click', () => applySwap(true));
+    $('#swapRemove').addEventListener('click', removeDish);
     $('#swapCancel').addEventListener('click', () => $('#swapDialog').close());
+    $('#moveApply').addEventListener('click', applyMove);
+    $('#moveCancel').addEventListener('click', () => $('#moveDialog').close());
+    $('#copyFrom').addEventListener('change', copyCampusFrom);
     $('#guideDay').addEventListener('change', renderGuide);
     $('#shopRange').addEventListener('change', renderShopping);
+    $('#shopCampus').addEventListener('change', renderShopping);
     $('#exportMenu').addEventListener('click', exportMenu);
     $('#exportGuide').addEventListener('click', exportGuide);
     $('#exportShop').addEventListener('click', exportShopping);

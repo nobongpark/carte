@@ -47,6 +47,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -71,7 +72,7 @@ body {
 }
 
 /* 입력 폼 */
-.form { display: grid; grid-template-columns: minmax(160px, 220px) 1fr; gap: 16px 24px; align-items: end; }
+.form { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 16px 24px; align-items: end; }
 .field label { display: block; font-weight: 600; margin-bottom: 6px; }
 .field.primary label { font-size: 16px; }
 input, select {
@@ -216,6 +217,32 @@ label.inline { min-height: 42px; }
 #swapSearch { width: 100%; margin-bottom: 8px; }
 p.small { font-size: 12px; margin: 4px 0 0; }
 
+/* 캠퍼스 */
+.campus-field { align-self: start; }
+.campus-row { display: grid; grid-template-columns: 1fr 130px auto; gap: 8px; margin-bottom: 8px; align-items: center; }
+.campus-row .input-unit input { font-size: 16px; }
+.campus-row .c-name { font-weight: 600; min-width: 0; }
+.campus-field small { display: block; margin-top: 6px; }
+.campus-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.campus-tabs button {
+  font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 6px 14px; font-weight: 700;
+}
+.campus-tabs button small { color: var(--muted); font-weight: 500; }
+.campus-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.campus-tabs button.active small { color: var(--accent-ink); opacity: .85; }
+.summary-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.summary-bar select { max-width: 100%; }
+td.changed { background: var(--badge); }
+.changed-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: var(--badge); border: 1px solid var(--line); vertical-align: -1px; }
+button.move { font: inherit; font-size: 11px; color: var(--muted); background: none; border: 1px dashed var(--line); border-radius: 6px; padding: 1px 6px; margin-top: 6px; cursor: pointer; }
+button.move:hover { color: var(--text); border-style: solid; }
+.inline-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin: 0 0 8px; }
+.inline-check input { min-height: auto; width: 16px; height: 16px; }
+.btns .inline-check { margin: 0; }
+#moveSelect { width: 100%; margin: 6px 0 12px; }
+@media (max-width: 640px) { .campus-row { grid-template-columns: 1fr 110px auto; } }
+
 .notes h2 { margin: 0 0 8px; font-size: 17px; }
 .notes ul { margin: 0; padding-left: 20px; color: var(--muted); }
 .notes li { margin-bottom: 4px; }
@@ -240,7 +267,9 @@ dialog h3 { margin: 0 0 10px; font-size: 16px; }
 
 @media print {
   body { background: #fff; color: #000; font-size: 11px; }
-  .site-header .sub, .form, .mine, .tabs, .toolbar, .notes, .summary-bar { display: none !important; }
+  .site-header .sub, .form, .mine, .tabs, .campus-tabs, .toolbar, .notes, .summary-bar select { display: none !important; }
+  button.move { display: none; }
+  td.changed { background: none; }
   .card { border: none; padding: 0; margin: 0; }
   .table-wrap { overflow: visible; border: none; }
   table.menu { min-width: 0; }

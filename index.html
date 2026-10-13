@@ -18,9 +18,11 @@
 
   <main class="wrap">
     <form id="form" class="card form" novalidate>
-      <div class="field primary">
-        <label for="people">① 인원</label>
-        <div class="input-unit"><input id="people" type="number" min="1" max="3000" value="300" required inputmode="numeric"><span>명</span></div>
+      <div class="field primary campus-field">
+        <label>① 캠퍼스와 인원</label>
+        <div id="campusRows"></div>
+        <button type="button" id="campusAdd" class="btn small">+ 캠퍼스 추가</button>
+        <small class="muted">캠퍼스가 여러 개면 같은 식단으로 시작해서 캠퍼스마다 따로 고칠 수 있어요.</small>
       </div>
       <div class="field primary">
         <label>② 기간</label>
@@ -189,8 +191,10 @@
     </section>
 
     <section id="result" hidden>
+      <nav id="campusTabs" class="campus-tabs" role="tablist" aria-label="캠퍼스" hidden></nav>
       <div class="card summary-bar">
         <p id="summary"></p>
+        <select id="copyFrom" aria-label="다른 식단 가져오기"></select>
       </div>
 
       <nav class="tabs" role="tablist">
@@ -201,8 +205,12 @@
 
       <div id="panel-menu" class="panel">
         <div class="toolbar">
-          <p class="muted">메뉴 이름을 누르면 다른 메뉴로 바꿀 수 있어요.</p>
+          <div>
+            <p class="muted">메뉴 이름을 누르면 다른 메뉴로 바꾸고, <b>⇄ 끼니 옮기기</b>로 끼니를 다른 날·끼니와 통째로 맞바꿀 수 있어요.</p>
+            <p id="changedLegend" class="muted" hidden><span class="changed-swatch"></span> 이 캠퍼스에서 기준 식단과 다르게 고친 끼니</p>
+          </div>
           <div class="btns">
+            <label class="muted inline-check" id="exportAllWrap"><input type="checkbox" id="exportAllCampus"> 모든 캠퍼스 함께</label>
             <button type="button" id="exportMenu" class="btn">엑셀(CSV) 저장</button>
             <button type="button" class="btn print">인쇄</button>
           </div>
@@ -224,7 +232,10 @@
 
       <div id="panel-shop" class="panel" hidden>
         <div class="toolbar">
-          <label>범위 <select id="shopRange"></select></label>
+          <div class="btns">
+            <label id="shopCampusWrap">캠퍼스 <select id="shopCampus"></select></label>
+            <label>범위 <select id="shopRange"></select></label>
+          </div>
           <div class="btns">
             <button type="button" id="exportShop" class="btn">엑셀(CSV) 저장</button>
             <button type="button" class="btn print">인쇄</button>
@@ -250,13 +261,26 @@
   <dialog id="swapDialog">
     <h3 id="swapTitle">메뉴 바꾸기</h3>
     <input id="swapSearch" type="search" placeholder="메뉴 이름으로 찾기" aria-label="메뉴 찾기">
+    <label class="inline-check"><input type="checkbox" id="swapAll"> 다른 분류·끼니 메뉴도 보기 (예: 저녁에 라멘 넣기)</label>
     <select id="swapSelect" size="8"></select>
     <p class="muted small">♥ 자주 넣을 메뉴 · ★ 직접 추가한 메뉴</p>
     <div id="swapPreview" class="preview"></div>
     <div class="dialog-actions">
+      <button type="button" id="swapRemove" class="btn">이 메뉴 빼기</button>
       <button type="button" id="swapRandom" class="btn">아무거나 추천</button>
       <button type="button" id="swapCancel" class="btn">취소</button>
       <button type="button" id="swapApply" class="btn primary">이 메뉴로 바꾸기</button>
+    </div>
+  </dialog>
+
+  <dialog id="moveDialog">
+    <h3 id="moveTitle">끼니 옮기기</h3>
+    <p class="muted">고른 끼니와 이 끼니의 메뉴 전체를 서로 맞바꿔요. (예: 점심 돈코츠라멘 ↔ 저녁)</p>
+    <label for="moveSelect" class="muted">어느 끼니와 바꿀까요?</label>
+    <select id="moveSelect"></select>
+    <div class="dialog-actions">
+      <button type="button" id="moveCancel" class="btn">취소</button>
+      <button type="button" id="moveApply" class="btn primary">맞바꾸기</button>
     </div>
   </dialog>
 
