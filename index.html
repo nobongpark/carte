@@ -74,6 +74,112 @@
       <p id="error" class="error" role="alert"></p>
     </form>
 
+    <section class="card mine">
+      <details id="favBox">
+        <summary><h2>내가 원하는 메뉴 넣기 <span id="favCount" class="muted"></span></h2>
+          <span class="muted">돼지갈비·소불고기처럼 더 자주 먹고 싶은 메뉴를 골라 두면 식단에 꼭 들어가요.</span></summary>
+
+        <div class="fav-add">
+          <input id="favInput" list="menuNames" placeholder="메뉴 검색 (예: 제육, 갈비, 불고기)" aria-label="메뉴 검색">
+          <datalist id="menuNames"></datalist>
+          <button type="button" id="favAdd" class="btn primary">추가</button>
+          <label class="per-week">메뉴마다
+            <select id="favPerWeek">
+              <option value="1">주 1회</option>
+              <option value="2" selected>주 2회</option>
+              <option value="3">주 3회</option>
+              <option value="4">주 4회</option>
+            </select>
+          </label>
+        </div>
+        <p id="favMsg" class="msg" role="status"></p>
+        <ul id="favList" class="chips"></ul>
+        <p class="muted">고른 뒤 <b>식단표 만들기</b>를 다시 누르면 반영돼요. 주찬은 같은 날 겹치지 않게, 하루 반 이상 간격을 두고 넣어요.</p>
+
+        <details id="customBox" class="custom">
+          <summary>목록에 없는 메뉴라면? <b>새 메뉴 만들기</b></summary>
+          <form id="customForm" class="custom-form" novalidate>
+            <div class="field">
+              <label for="newName">메뉴 이름</label>
+              <input id="newName" placeholder="예) 매운돼지갈비찜">
+            </div>
+            <div class="field">
+              <label for="newCat">분류</label>
+              <select id="newCat">
+                <option value="main">주찬 (메인 반찬)</option>
+                <option value="one">일품요리 (덮밥·면, 중식)</option>
+                <option value="soup">국·찌개</option>
+                <option value="side">부찬 (곁들이는 반찬)</option>
+                <option value="snack">간식 (밤 9시)</option>
+              </select>
+            </div>
+            <div class="field" id="newProteinWrap">
+              <label for="newProtein">주재료</label>
+              <select id="newProtein">
+                <option value="pork">돼지</option>
+                <option value="beef">소</option>
+                <option value="chicken">닭</option>
+                <option value="duck">오리</option>
+                <option value="fish">생선</option>
+                <option value="sea">해산물 (오징어·새우 등)</option>
+                <option value="proc">가공육·어묵</option>
+                <option value="egg">계란</option>
+                <option value="tofu">두부</option>
+                <option value="veg">채소</option>
+              </select>
+            </div>
+            <div class="field" id="newSideTypeWrap" hidden>
+              <label for="newSideType">부찬 종류</label>
+              <select id="newSideType">
+                <option value="veg">나물·채소</option>
+                <option value="pro">고기·계란·어묵</option>
+                <option value="carb">면·전·감자</option>
+                <option value="fried">튀김</option>
+              </select>
+            </div>
+            <div class="field" id="newOneKindWrap" hidden>
+              <label for="newOneKind">종류</label>
+              <select id="newOneKind">
+                <option value="rice">밥 요리 (덮밥·볶음밥)</option>
+                <option value="noodle">면 요리 (추가밥과 함께)</option>
+              </select>
+            </div>
+            <div class="field" id="newMealsWrap">
+              <label>언제 낼까요?</label>
+              <div class="checks">
+                <label><input type="checkbox" name="newMeal" value="B"> 조식</label>
+                <label><input type="checkbox" name="newMeal" value="L" checked> 중식</label>
+                <label><input type="checkbox" name="newMeal" value="D" checked> 석식</label>
+              </div>
+            </div>
+            <div class="field" id="newFriedWrap">
+              <label>&nbsp;</label>
+              <label class="inline"><input type="checkbox" id="newFried"> 튀김 요리예요</label>
+            </div>
+            <div class="field wide">
+              <label for="newIng">재료와 양 <small class="muted">한 줄에 하나씩 "재료이름 수량단위"</small></label>
+              <select id="newCopy" aria-label="비슷한 메뉴 재료 불러오기"></select>
+              <textarea id="newIng" rows="6" placeholder="양념돼지갈비 60kg&#10;양파 5kg&#10;대파 1.5kg&#10;갈비양념 4kg"></textarea>
+              <div class="base-line">위 양은 <input id="newBase" type="number" min="1" value="300" inputmode="numeric" aria-label="기준 인원"> 명 기준이에요.
+                <small class="muted">양을 잘 모르면 '비슷한 메뉴 재료 불러오기'로 채운 뒤 고쳐 쓰세요.</small></div>
+            </div>
+            <div class="field wide actions-row">
+              <button type="submit" class="btn primary">이 메뉴 저장하기</button>
+              <p id="customMsg" class="msg" role="status"></p>
+            </div>
+          </form>
+          <h3>직접 추가한 메뉴 <small class="muted">(300명 기준 양)</small></h3>
+          <ul id="customList" class="custom-list"></ul>
+        </details>
+
+        <div class="mine-io">
+          <span class="muted">내 메뉴는 이 브라우저에 저장돼요. 다른 컴퓨터에서 쓰려면 파일로 옮기세요.</span>
+          <button type="button" id="exportMine" class="btn small">내 메뉴 파일로 저장</button>
+          <label class="btn small file-btn">파일에서 불러오기<input id="importMine" type="file" accept=".json,application/json" hidden></label>
+        </div>
+      </details>
+    </section>
+
     <section id="result" hidden>
       <div class="card summary-bar">
         <p id="summary"></p>
@@ -135,7 +241,9 @@
 
   <dialog id="swapDialog">
     <h3 id="swapTitle">메뉴 바꾸기</h3>
+    <input id="swapSearch" type="search" placeholder="메뉴 이름으로 찾기" aria-label="메뉴 찾기">
     <select id="swapSelect" size="8"></select>
+    <p class="muted small">♥ 자주 넣을 메뉴 · ★ 직접 추가한 메뉴</p>
     <div id="swapPreview" class="preview"></div>
     <div class="dialog-actions">
       <button type="button" id="swapRandom" class="btn">아무거나 추천</button>

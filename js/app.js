@@ -76,6 +76,37 @@
   };
   const SPECIAL_ITEMS = Object.values(SPECIALS).flatMap(s => s.dishes);
 
+  /* ───────── 직접 추가한 메뉴 · 자주 넣을 메뉴 ───────── */
+  const CUSTOM_KEY = 'carte-custom-v1';
+  const FAV_KEY = 'carte-fav-v1';
+  const CUSTOM_CATS = { main: '주찬', one: '일품', soup: '국·찌개', side: '부찬', snack: '간식' };
+  const BUILTIN = Object.fromEntries(Object.keys(CUSTOM_CATS).map(c => [c, POOLS[c].slice()]));
+  let customs = [];
+  let favs = { names: [], perWeek: 2 };
+
+  function readJson(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  function writeJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경은 무시 */ }
+  }
+
+  // 기본 메뉴 + 직접 추가한 메뉴를 각 분류 목록에 합침
+  function applyCustoms() {
+    for (const cat of Object.keys(CUSTOM_CATS)) {
+      POOLS[cat].length = 0;
+      POOLS[cat].push(...BUILTIN[cat], ...customs.filter(c => c.cat === cat));
+    }
+  }
+  function favSet() {
+    return new Set(favs.names);
+  }
+
   function findItem(cat, name) {
     const pool = cat === 'special' ? SPECIAL_ITEMS : POOLS[cat];
     return pool && pool.find(x => x.n === name);
@@ -99,6 +130,8 @@
     const end = parseDate(opts.end);
     const nDays = Math.round((end - start) / 86400000) + 1;
     const lastUsed = new Map();
+    const favNames = favSet();
+    const favCount = new Map(); // "주차|메뉴" → 그 주에 나온 횟수
 
     const shuffle = arr => {
       const a = arr.slice();
@@ -113,14 +146,29 @@
     function pick(pool, filter, gap, t) {
       const cands = shuffle(pool.filter(filter));
       if (!cands.length) return null;
+      const d = Math.floor(t / 4);
+      const wk = Math.floor(d / 7);
+      const use = x => {
+        lastUsed.set(x.n, t);
+        if (favNames.has(x.n)) favCount.set(`${wk}|${x.n}`, (favCount.get(`${wk}|${x.n}`) || 0) + 1);
+        return x;
+      };
+
+      // 자주 넣을 메뉴: 이번 주 남은 횟수를 남은 끼니에 고르게 나눠 넣음 (최소 하루 반 간격)
+      const daysLeft = Math.min(7 - (d % 7), nDays - d);
+      for (const x of cands.filter(c => favNames.has(c.n))) {
+        const need = favs.perWeek - (favCount.get(`${wk}|${x.n}`) || 0);
+        if (need <= 0) continue;
+        if (lastUsed.has(x.n) && t - lastUsed.get(x.n) < 6) continue;
+        const slotsPerDay = x.m ? [...'BLD'].filter(c => x.m.includes(c)).length : 1;
+        if (need >= daysLeft || rand() < (2 * need) / Math.max(1, daysLeft * slotsPerDay)) return use(x);
+      }
+
       for (let g = gap; g >= 0; g--) {
         const ok = cands.filter(x => !lastUsed.has(x.n) || t - lastUsed.get(x.n) >= g);
-        if (ok.length) {
-          lastUsed.set(ok[0].n, t);
-          return ok[0];
-        }
+        if (ok.length) return use(ok[0]);
       }
-      return cands[0];
+      return use(cands[0]);
     }
     const E = (cat, item) => ({ cat, item });
 
@@ -159,7 +207,7 @@
         }
 
         if (meal === 'B') {
-          const main = pick(MAINS, x => x.m.includes('B') && x.p !== prevP, 16, t);
+          const main = pick(MAINS, x => x.m.includes('B') && (x.p !== prevP || favNames.has(x.n)), 16, t);
           prevP = main.p;
           dishes.push(E('main', main), E('rice', RICE.white));
           dishes.push(E('soup', pick(SOUPS, x => x.m.includes('B') && !x.heavy, 8, t)));
@@ -179,7 +227,7 @@
             dishes.push(E('one', one));
             if (kind === 'noodle') {
               dishes.push(E('rice', RICE.extra));
-              const m2 = pick(MAINS, x => x.m.includes('L') && x.f && x.p !== one.p, 20, t);
+              const m2 = pick(MAINS, x => x.m.includes('L') && x.f && (x.p !== one.p || favNames.has(x.n)), 20, t);
               dishes.push(E('main', m2));
               dishes.push(E('side', pick(SIDES, x => x.m.includes('L') && x.t === 'veg', 12, t)));
               dayLunchP = m2.p;
@@ -190,7 +238,7 @@
               dayLunchP = one.p;
             }
           } else {
-            const main = pick(MAINS, x => x.m.includes('L') && x.p !== prevP, 20, t);
+            const main = pick(MAINS, x => x.m.includes('L') && (x.p !== prevP || favNames.has(x.n)), 20, t);
             dayLunchP = main.p;
             dishes.push(E('main', main), E('rice', RICE.mixed));
             dishes.push(E('soup', pick(SOUPS, x => x.m.includes('L'), 8, t)));
@@ -205,7 +253,7 @@
         }
 
         if (meal === 'D') {
-          const main = pick(MAINS, x => x.m.includes('D') && x.p !== prevP && x.p !== dayLunchP, 20, t);
+          const main = pick(MAINS, x => x.m.includes('D') && ((x.p !== prevP && x.p !== dayLunchP) || favNames.has(x.n)), 20, t);
           prevP = main.p;
           dishes.push(E('main', main), E('rice', RICE.white));
           dishes.push(E('soup', pick(SOUPS, x => x.m.includes('D') && !(x.heavy && x.m !== 'D'), 8, t)));
@@ -431,9 +479,22 @@
     const alts = alternatives(entry, meal);
     swapTarget = { d, meal, k };
     $('#swapTitle').textContent = `${md(parseDate(state.days[d].date))} ${MEAL_LABEL[meal]} · ${CAT_LABEL[entry.cat]} 바꾸기`;
-    $('#swapSelect').innerHTML = alts.map(x => `<option value="${esc(x.n)}"${x.n === entry.item.n ? ' selected' : ''}>${esc(x.n)}</option>`).join('');
+    $('#swapSearch').value = '';
+    fillSwapOptions();
     $('#swapPreview').innerHTML = ingHtml(entry.item);
     $('#swapDialog').showModal();
+  }
+  function fillSwapOptions() {
+    const { d, meal, k } = swapTarget;
+    const entry = state.days[d].meals[meal].dishes[k];
+    const q = $('#swapSearch').value.trim();
+    const names = favSet();
+    // 자주 넣을 메뉴·직접 만든 메뉴를 위로
+    const alts = alternatives(entry, meal)
+      .filter(x => !q || x.n.includes(q))
+      .sort((a, b) => (names.has(b.n) - names.has(a.n)) || ((b.custom || 0) - (a.custom || 0)));
+    $('#swapSelect').innerHTML = alts.map(x =>
+      `<option value="${esc(x.n)}"${x.n === entry.item.n ? ' selected' : ''}>${names.has(x.n) ? '♥ ' : ''}${esc(x.n)}${x.custom ? ' ★' : ''}</option>`).join('');
   }
   function swapPreview() {
     const { d, meal, k } = swapTarget;
@@ -514,6 +575,159 @@
     downloadCsv(`장보기목록_${label}_${state.opts.start}.csv`, rows);
   }
 
+  /* ───────── 내 메뉴 관리 화면 ───────── */
+  const P_LABEL = { pork: '돼지', beef: '소', chicken: '닭', duck: '오리', fish: '생선', sea: '해산물', proc: '가공육·어묵', egg: '계란', tofu: '두부', veg: '채소' };
+
+  function allMenuEntries() {
+    const out = [];
+    for (const [cat, label] of Object.entries(CUSTOM_CATS)) {
+      for (const x of POOLS[cat]) out.push({ cat, label, item: x });
+    }
+    return out;
+  }
+
+  function renderFavs() {
+    const names = favSet();
+    $('#favPerWeek').value = String(favs.perWeek);
+    $('#menuNames').innerHTML = allMenuEntries().map(e => `<option value="${esc(e.item.n)}">${esc(e.label)}</option>`).join('');
+    $('#favList').innerHTML = favs.names.length
+      ? favs.names.map(n => {
+        const e = allMenuEntries().find(x => x.item.n === n);
+        return `<li class="chip">${e ? `<small>${esc(e.label)}</small>` : ''}${esc(n)}${e && e.item.custom ? ' ★' : ''}<button type="button" data-fav="${esc(n)}" aria-label="${esc(n)} 빼기">×</button></li>`;
+      }).join('')
+      : '<li class="muted">아직 없어요. 위에서 메뉴를 검색해 추가하세요.</li>';
+    $('#customList').innerHTML = customs.length
+      ? customs.map((c, i) => `<li><b>${esc(c.n)}</b> <small class="muted">${esc(CUSTOM_CATS[c.cat])}${c.p ? ` · ${esc(P_LABEL[c.p])}` : ''}</small>
+          <div class="ing-line">${ingHtmlBase(c)}</div>
+          <button type="button" class="btn small" data-del="${i}">삭제</button></li>`).join('')
+      : '<li class="muted">직접 추가한 메뉴가 없어요.</li>';
+    $('#favCount').textContent = favs.names.length ? `(${favs.names.length}개)` : '';
+  }
+
+  // 300명 기준 양 그대로 보여주기 (메뉴 관리 화면용)
+  function ingHtmlBase(item) {
+    return parseIngredients(item.i).map(g =>
+      `<span class="ing${g.est ? ' est' : ''}">${esc(g.name)}${g.qty == null ? '' : ` <b>${fmtQty(g.qty)}${esc(g.unit)}</b>`}</span>`).join('');
+  }
+
+  function addFav(name) {
+    name = name.trim();
+    if (!name) return;
+    if (!allMenuEntries().some(e => e.item.n === name)) {
+      $('#favMsg').textContent = `'${name}'은(는) 목록에 없는 메뉴예요. 아래 '새 메뉴 만들기'에서 먼저 만들어 주세요.`;
+      $('#newName').value = name;
+      $('#customBox').open = true;
+      return;
+    }
+    $('#favMsg').textContent = '';
+    if (!favs.names.includes(name)) favs.names.push(name);
+    writeJson(FAV_KEY, favs);
+    $('#favInput').value = '';
+    renderFavs();
+  }
+
+  function updateCustomFields() {
+    const cat = $('#newCat').value;
+    $('#newProteinWrap').hidden = !['main', 'one'].includes(cat);
+    $('#newMealsWrap').hidden = !['main', 'soup', 'side'].includes(cat);
+    $('#newSideTypeWrap').hidden = cat !== 'side';
+    $('#newOneKindWrap').hidden = cat !== 'one';
+    $('#newFriedWrap').hidden = !['main'].includes(cat);
+    const pool = POOLS[cat] || [];
+    $('#newCopy').innerHTML = '<option value="">— 비슷한 메뉴 재료 불러오기 —</option>' + pool.map(x => `<option>${esc(x.n)}</option>`).join('');
+  }
+
+  function copyIngredients() {
+    const item = (POOLS[$('#newCat').value] || []).find(x => x.n === $('#newCopy').value);
+    if (!item) return;
+    $('#newBase').value = '300';
+    $('#newIng').value = parseIngredients(item.i).map(g => `${g.name} ${g.qty == null ? '' : `${g.qty}${g.unit}`}`.trim()).join('\n');
+  }
+
+  function saveCustom(ev) {
+    ev.preventDefault();
+    const msg = $('#customMsg');
+    const name = $('#newName').value.trim();
+    const cat = $('#newCat').value;
+    const base = parseFloat($('#newBase').value);
+    if (!name) { msg.textContent = '메뉴 이름을 입력해 주세요.'; return; }
+    if (allMenuEntries().some(e => e.item.n === name)) { msg.textContent = '같은 이름의 메뉴가 이미 있어요. 다른 이름을 써 주세요.'; return; }
+    if (!(base > 0)) { msg.textContent = '몇 명 기준 양인지 숫자로 입력해 주세요.'; return; }
+    const lines = $('#newIng').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!lines.length) { msg.textContent = '재료를 한 줄에 하나씩 입력해 주세요. 예) 돼지고기 36kg'; return; }
+    const parts = [];
+    for (const line of lines) {
+      const m = line.replace(/,/g, '').match(/^(.*\S)\s+([\d.]+)\s*([^\d\s.]+)$/);
+      if (!m) { msg.textContent = `"${line}" 줄을 이해하지 못했어요. "재료이름 수량단위" 형식으로 써 주세요. 예) 양파 5kg`; return; }
+      const qty = Math.round(parseFloat(m[2]) * (BASE_PEOPLE / base) * 100) / 100;
+      parts.push(`${m[1]} ${qty}${m[3]}`);
+    }
+    const meals = [...document.querySelectorAll('input[name=newMeal]:checked')].map(x => x.value).join('');
+    const item = { n: name, cat, i: parts.join('; '), custom: 1 };
+    if (['main', 'soup', 'side'].includes(cat)) {
+      if (!meals) { msg.textContent = '언제 먹을지(조식/중식/석식) 하나 이상 골라 주세요.'; return; }
+      item.m = meals;
+    }
+    if (cat === 'main' || cat === 'one') item.p = $('#newProtein').value;
+    if (cat === 'main' && $('#newFried').checked) item.f = 1;
+    if (cat === 'side') item.t = $('#newSideType').value;
+    if (cat === 'one') item.k = $('#newOneKind').value;
+    customs.push(item);
+    writeJson(CUSTOM_KEY, customs);
+    applyCustoms();
+    if (!favs.names.includes(name)) favs.names.push(name);
+    writeJson(FAV_KEY, favs);
+    $('#customForm').reset();
+    updateCustomFields();
+    msg.textContent = `'${name}'을(를) 추가하고 자주 넣을 메뉴에도 넣었어요. '식단표 만들기'를 다시 누르면 반영돼요.`;
+    renderFavs();
+  }
+
+  function deleteCustom(i) {
+    const c = customs[i];
+    if (!c || !confirm(`'${c.n}' 메뉴를 삭제할까요?`)) return;
+    customs.splice(i, 1);
+    favs.names = favs.names.filter(n => n !== c.n);
+    writeJson(CUSTOM_KEY, customs);
+    writeJson(FAV_KEY, favs);
+    applyCustoms();
+    renderFavs();
+  }
+
+  function exportMyMenus() {
+    const blob = new Blob([JSON.stringify({ customs, favs }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '내메뉴.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function importMyMenus(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        const incoming = Array.isArray(data.customs) ? data.customs.filter(c => c && c.n && c.i && CUSTOM_CATS[c.cat]) : [];
+        for (const c of incoming) if (!customs.some(x => x.n === c.n)) customs.push({ ...c, custom: 1 });
+        if (data.favs && Array.isArray(data.favs.names)) {
+          for (const n of data.favs.names) if (!favs.names.includes(n)) favs.names.push(n);
+          if (data.favs.perWeek) favs.perWeek = data.favs.perWeek;
+        }
+        writeJson(CUSTOM_KEY, customs);
+        writeJson(FAV_KEY, favs);
+        applyCustoms();
+        renderFavs();
+        $('#favMsg').textContent = '내 메뉴를 불러왔어요.';
+      } catch (e) {
+        $('#favMsg').textContent = '파일을 읽지 못했어요. 이 사이트에서 저장한 내메뉴.json 파일인지 확인해 주세요.';
+      }
+    };
+    reader.readAsText(file);
+  }
+
   /* ───────── 이벤트 ───────── */
   function setTab(name) {
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -521,6 +735,41 @@
   }
 
   function init() {
+    customs = readJson(CUSTOM_KEY, []).filter(c => c && c.n && c.i && CUSTOM_CATS[c.cat]);
+    favs = { names: [], perWeek: 2, ...readJson(FAV_KEY, {}) };
+    applyCustoms();
+    updateCustomFields();
+    renderFavs();
+
+    $('#favAdd').addEventListener('click', () => addFav($('#favInput').value));
+    $('#favInput').addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); addFav($('#favInput').value); }
+    });
+    $('#favPerWeek').addEventListener('change', () => {
+      favs.perWeek = parseInt($('#favPerWeek').value, 10);
+      writeJson(FAV_KEY, favs);
+    });
+    $('#favList').addEventListener('click', ev => {
+      const b = ev.target.closest('button[data-fav]');
+      if (!b) return;
+      favs.names = favs.names.filter(n => n !== b.dataset.fav);
+      writeJson(FAV_KEY, favs);
+      renderFavs();
+    });
+    $('#customList').addEventListener('click', ev => {
+      const b = ev.target.closest('button[data-del]');
+      if (b) deleteCustom(+b.dataset.del);
+    });
+    $('#newCat').addEventListener('change', updateCustomFields);
+    $('#newCopy').addEventListener('change', copyIngredients);
+    $('#customForm').addEventListener('submit', saveCustom);
+    $('#exportMine').addEventListener('click', exportMyMenus);
+    $('#importMine').addEventListener('change', ev => {
+      if (ev.target.files[0]) importMyMenus(ev.target.files[0]);
+      ev.target.value = '';
+    });
+    $('#swapSearch').addEventListener('input', fillSwapOptions);
+
     const today = new Date();
     const restored = load();
     if (restored && restored.days.length) {
